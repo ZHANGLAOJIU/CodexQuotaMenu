@@ -28,6 +28,7 @@ It was built after a Codex desktop update changed how usage information was expo
 ## Features
 
 - Shows remaining quota for the 5-hour and weekly windows in the menu bar.
+- Opens a native graphical panel with color-coded progress meters.
 - Refreshes from the Codex usage service every 30 seconds.
 - Shows exact local reset timestamps when clicked.
 - Shows both remaining and used percentages.
@@ -41,16 +42,18 @@ It was built after a Codex desktop update changed how usage information was expo
 ## Menu details
 
 ```text
-Codex usage
+Codex                                      Plus
 
-5-hour remaining: 71% (used 29%)
-Weekly remaining: 95% (used 5%)
+5-hour limit
+[=====================---------] 71% remaining
+                              resets in 4h 44m
+
+Weekly limit
+[============================--] 95% remaining
+                              resets in 6d 17h
 
 5-hour reset: 2026-07-10 19:07:26
 Weekly reset: 2026-07-17 07:23:25
-Last sync: 2026-07-10 14:23:15
-Data source: Codex official usage API
-Plan: plus
 
 Sync now
 Open Codex
@@ -188,6 +191,8 @@ Bug reports and focused pull requests are welcome. Please read [CONTRIBUTING.md]
 ## Disclaimer
 
 This is an independent community project. It is not affiliated with or endorsed by OpenAI. Codex, ChatGPT, and OpenAI are trademarks of OpenAI. The internal usage endpoint may change in future Codex releases; the fallback and explicit source label are designed to make failures visible rather than silently showing stale data.
+
+The graphical meter concept was independently implemented after reviewing the MIT-licensed [OpenUsage](https://github.com/robinebers/openusage) project. OpenUsage is a broader multi-provider tracker; Codex Quota Menu remains intentionally Codex-only and dependency-free.
 
 ## License
 

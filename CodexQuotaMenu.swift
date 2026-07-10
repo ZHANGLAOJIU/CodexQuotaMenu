@@ -42,6 +42,174 @@ struct UsageSnapshot {
     }
 }
 
+final class QuotaPanelView: NSView {
+    private static let panelSize = NSSize(width: 350, height: 216)
+    private let snapshot: UsageSnapshot
+    private let syncTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    init(snapshot: UsageSnapshot) {
+        self.snapshot = snapshot
+        super.init(frame: NSRect(origin: .zero, size: Self.panelSize))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Codex 5小时与一周剩余额度")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var intrinsicContentSize: NSSize {
+        Self.panelSize
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        drawText(
+            "Codex",
+            in: NSRect(x: 16, y: 12, width: 180, height: 24),
+            font: .systemFont(ofSize: 15, weight: .semibold),
+            color: .labelColor
+        )
+
+        if let planType = snapshot.planType {
+            drawText(
+                planType.capitalized,
+                in: NSRect(x: 220, y: 14, width: 114, height: 20),
+                font: .systemFont(ofSize: 11, weight: .medium),
+                color: .secondaryLabelColor,
+                alignment: .right
+            )
+        }
+
+        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
+        NSRect(x: 16, y: 43, width: 318, height: 1).fill()
+
+        drawMetric(
+            title: "5 小时额度",
+            remainingPercent: snapshot.primaryRemainingPercent,
+            resetAt: snapshot.primaryResetAt,
+            top: 57
+        )
+        drawMetric(
+            title: "一周额度",
+            remainingPercent: snapshot.secondaryRemainingPercent,
+            resetAt: snapshot.secondaryResetAt,
+            top: 126
+        )
+
+        let source = "\(syncTimeFormatter.string(from: snapshot.sourceDate)) 同步 · \(snapshot.sourceName)"
+        drawText(
+            source,
+            in: NSRect(x: 16, y: 198, width: 318, height: 15),
+            font: .systemFont(ofSize: 10),
+            color: .tertiaryLabelColor
+        )
+    }
+
+    private func drawMetric(title: String, remainingPercent: Int?, resetAt: Date?, top: CGFloat) {
+        drawText(
+            title,
+            in: NSRect(x: 16, y: top, width: 318, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .labelColor
+        )
+
+        let trackRect = NSRect(x: 16, y: top + 27, width: 318, height: 7)
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.28).setFill()
+        NSBezierPath(roundedRect: trackRect, xRadius: 3.5, yRadius: 3.5).fill()
+
+        if let remainingPercent {
+            let clamped = max(0, min(100, remainingPercent))
+            if clamped > 0 {
+                let fillWidth = max(7, trackRect.width * CGFloat(clamped) / 100)
+                let fillRect = NSRect(x: trackRect.minX, y: trackRect.minY, width: fillWidth, height: trackRect.height)
+                meterColor(for: clamped).setFill()
+                NSBezierPath(roundedRect: fillRect, xRadius: 3.5, yRadius: 3.5).fill()
+            }
+        }
+
+        let percentText = remainingPercent.map { "\($0)% 剩余" } ?? "--% 剩余"
+        drawText(
+            percentText,
+            in: NSRect(x: 16, y: top + 40, width: 120, height: 18),
+            font: .monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+            color: .labelColor
+        )
+        drawText(
+            formatCountdown(resetAt),
+            in: NSRect(x: 136, y: top + 40, width: 198, height: 18),
+            font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            color: .secondaryLabelColor,
+            alignment: .right
+        )
+    }
+
+    private func meterColor(for remainingPercent: Int) -> NSColor {
+        switch remainingPercent {
+        case ...30:
+            return .systemRed
+        case ...50:
+            return .systemOrange
+        default:
+            return .systemBlue
+        }
+    }
+
+    private func formatCountdown(_ date: Date?) -> String {
+        guard let date else {
+            return "刷新时间未知"
+        }
+
+        let totalMinutes = max(0, Int(date.timeIntervalSinceNow) / 60)
+        let days = totalMinutes / (24 * 60)
+        let hours = (totalMinutes % (24 * 60)) / 60
+        let minutes = totalMinutes % 60
+
+        if days > 0 {
+            return "\(days)天 \(hours)小时后刷新"
+        }
+        if hours > 0 {
+            return "\(hours)小时 \(minutes)分后刷新"
+        }
+        if minutes > 0 {
+            return "\(minutes)分后刷新"
+        }
+        return "即将刷新"
+    }
+
+    private func drawText(
+        _ text: String,
+        in rect: NSRect,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        text.draw(
+            in: rect,
+            withAttributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ]
+        )
+    }
+}
+
 final class CodexQuotaReader {
     private let authURL = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/auth.json")
     private let databasePaths = [
@@ -64,7 +232,7 @@ final class CodexQuotaReader {
             request.httpMethod = "GET"
             request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
-            request.setValue("CodexQuotaMenu/2.0", forHTTPHeaderField: "User-Agent")
+            request.setValue("CodexQuotaMenu/2.1", forHTTPHeaderField: "User-Agent")
 
             session.dataTask(with: request) { [weak self] data, response, error in
                 guard let self else {
@@ -421,18 +589,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 addDisabledItem("Codex 用量暂不可读", to: menu)
                 addDisabledItem(error, to: menu)
             } else {
-                addDisabledItem("Codex 用量提醒", to: menu)
-                menu.addItem(NSMenuItem.separator())
-                addDisabledItem("5小时剩余：\(formatPercent(snapshot.primaryRemainingPercent))（已用 \(formatPercent(snapshot.primaryUsedPercent))）", to: menu)
-                addDisabledItem("一周剩余：\(formatPercent(snapshot.secondaryRemainingPercent))（已用 \(formatPercent(snapshot.secondaryUsedPercent))）", to: menu)
+                let panelItem = NSMenuItem()
+                panelItem.view = QuotaPanelView(snapshot: snapshot)
+                menu.addItem(panelItem)
                 menu.addItem(NSMenuItem.separator())
                 addDisabledItem("5小时刷新：\(formatDate(snapshot.primaryResetAt))", to: menu)
                 addDisabledItem("一周刷新：\(formatDate(snapshot.secondaryResetAt))", to: menu)
-                addDisabledItem("最近同步：\(formatDate(snapshot.sourceDate))", to: menu)
-                addDisabledItem("数据来源：\(snapshot.sourceName)", to: menu)
-                if let planType = snapshot.planType {
-                    addDisabledItem("计划：\(planType)", to: menu)
-                }
                 if let warning = snapshot.warningMessage {
                     menu.addItem(NSMenuItem.separator())
                     addDisabledItem(warning, to: menu)

@@ -13,6 +13,7 @@
 ## 主要特点
 
 - 每 30 秒与 Codex 官方用量接口同步。
+- 点击后显示原生彩色进度条、剩余比例和刷新倒计时。
 - 同时显示 5 小时和一周两个额度窗口。
 - 点击菜单栏即可查看准确刷新时间。
 - 官方接口异常时自动读取本地 Codex 响应日志作为备用。
@@ -103,5 +104,7 @@ tail -f ~/Library/Logs/CodexQuotaMenu.err.log
 ## 说明
 
 这是独立的社区项目，与 OpenAI 没有隶属或背书关系。Codex、ChatGPT 和 OpenAI 是 OpenAI 的商标。Codex 内部接口在未来版本中可能继续变化，欢迎提交 issue 或 pull request 一起维护兼容性。
+
+进度条面板的构思参考了 MIT 开源项目 [OpenUsage](https://github.com/robinebers/openusage)，具体界面由本项目独立实现。OpenUsage 面向多个 AI 服务，本项目继续保持 Codex 专用、零第三方依赖的轻量定位。
 
 如果它确实让你少打开了几次用量页面，欢迎点一个 Star，让更多 Codex 用户能找到它。
