@@ -16,6 +16,6 @@ Keep changes focused. The project intentionally uses native AppKit and Foundatio
 1. Explain the user-visible problem.
 2. Describe how the change was verified.
 3. Keep credentials out of fixtures and logs.
-4. Pass `./scripts/build.sh` on macOS.
+4. Pass `./scripts/build.sh` and `./scripts/test.sh` on macOS.
 
 Please avoid broad formatting or architecture changes alongside a behavioral fix.

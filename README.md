@@ -33,6 +33,7 @@ It was built after a Codex desktop update changed how usage information was expo
 - Shows exact local reset timestamps when clicked.
 - Shows both remaining and used percentages.
 - Clearly labels whether data came from the official API or the local fallback.
+- Identifies windows by duration, so temporary single-window experiments cannot swap 5-hour and weekly values.
 - Falls back to recent Codex response headers when the network is unavailable.
 - Launches automatically at login through a per-user LaunchAgent.
 - Opens the current Codex desktop app from the menu.
@@ -133,6 +134,8 @@ For compatibility with older and transitional Codex builds, the fallback reader 
 - `~/.codex/logs_2.sqlite`
 - `~/.codex/sqlite/logs_2.sqlite`
 
+Window names are not inferred from `primary_window` and `secondary_window`. Codex can move the weekly limit into `primary_window` when the 5-hour limit is disabled. The app classifies a window from its reported duration and displays `--%` when no matching window exists.
+
 ## Privacy and security
 
 Codex Quota Menu is intentionally small enough to audit.
@@ -181,6 +184,7 @@ launchctl kickstart -k gui/$(id -u)/io.github.zhanglaojiu.codexquotamenu
 
 ```bash
 ./scripts/build.sh
+./scripts/test.sh
 open build/CodexQuotaMenu.app
 ```
 

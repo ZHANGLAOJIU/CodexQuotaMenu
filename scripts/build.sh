@@ -23,7 +23,9 @@ swiftc \
     -warnings-as-errors \
     -framework AppKit \
     -framework Foundation \
+    "$ROOT_DIR/QuotaModel.swift" \
     "$ROOT_DIR/CodexQuotaMenu.swift" \
+    "$ROOT_DIR/main.swift" \
     -o "$CONTENTS_DIR/MacOS/CodexQuotaMenu"
 
 codesign --force --deep --sign - "$APP_DIR"

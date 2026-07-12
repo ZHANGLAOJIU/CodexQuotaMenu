@@ -1,7 +1,7 @@
 import Cocoa
 import Foundation
 
-private func debugLog(_ message: String) {
+func debugLog(_ message: String) {
     let formatter = ISO8601DateFormatter()
     let line = "\(formatter.string(from: Date())) \(message)\n"
     let logURL = URL(fileURLWithPath: "\(NSHomeDirectory())/Library/Logs/CodexQuotaMenu.debug.log")
@@ -17,28 +17,6 @@ private func debugLog(_ message: String) {
         try? handle.close()
     } else {
         try? data.write(to: logURL)
-    }
-}
-
-struct UsageSnapshot {
-    let sourceDate: Date
-    let sourceName: String
-    let planType: String?
-    let primaryUsedPercent: Int?
-    let secondaryUsedPercent: Int?
-    let primaryWindowMinutes: Int?
-    let secondaryWindowMinutes: Int?
-    let primaryResetAt: Date?
-    let secondaryResetAt: Date?
-    let warningMessage: String?
-    let errorMessage: String?
-
-    var primaryRemainingPercent: Int? {
-        primaryUsedPercent.map { max(0, 100 - $0) }
-    }
-
-    var secondaryRemainingPercent: Int? {
-        secondaryUsedPercent.map { max(0, 100 - $0) }
     }
 }
 
@@ -98,14 +76,14 @@ final class QuotaPanelView: NSView {
 
         drawMetric(
             title: "5 小时额度",
-            remainingPercent: snapshot.primaryRemainingPercent,
-            resetAt: snapshot.primaryResetAt,
+            remainingPercent: snapshot.fiveHourRemainingPercent,
+            resetAt: snapshot.fiveHourResetAt,
             top: 57
         )
         drawMetric(
             title: "一周额度",
-            remainingPercent: snapshot.secondaryRemainingPercent,
-            resetAt: snapshot.secondaryResetAt,
+            remainingPercent: snapshot.weeklyRemainingPercent,
+            resetAt: snapshot.weeklyResetAt,
             top: 126
         )
 
@@ -211,6 +189,12 @@ final class QuotaPanelView: NSView {
 }
 
 final class CodexQuotaReader {
+    private struct ParsedWindow {
+        let usedPercent: Int?
+        let durationMinutes: Int
+        let resetAt: Date?
+    }
+
     private let authURL = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/auth.json")
     private let databasePaths = [
         "\(NSHomeDirectory())/.codex/logs_2.sqlite",
@@ -232,7 +216,7 @@ final class CodexQuotaReader {
             request.httpMethod = "GET"
             request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
-            request.setValue("CodexQuotaMenu/2.1", forHTTPHeaderField: "User-Agent")
+            request.setValue("CodexQuotaMenu/2.2", forHTTPHeaderField: "User-Agent")
 
             session.dataTask(with: request) { [weak self] data, response, error in
                 guard let self else {
@@ -299,13 +283,18 @@ final class CodexQuotaReader {
             )
         }
 
-        let primary = rateLimit["primary_window"] as? [String: Any]
-        let secondary = rateLimit["secondary_window"] as? [String: Any]
-        guard primary != nil || secondary != nil else {
+        let windows = [
+            parseAPIWindow(rateLimit["primary_window"]),
+            parseAPIWindow(rateLimit["secondary_window"])
+        ].compactMap { $0 }
+        let fiveHour = windows.first { quotaWindowKind(durationMinutes: $0.durationMinutes) == .fiveHour }
+        let weekly = windows.first { quotaWindowKind(durationMinutes: $0.durationMinutes) == .weekly }
+
+        guard fiveHour != nil || weekly != nil else {
             throw NSError(
                 domain: "CodexQuotaMenu.API",
                 code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Codex 用量接口没有窗口数据"]
+                userInfo: [NSLocalizedDescriptionKey: "Codex 用量接口没有可识别的窗口数据"]
             )
         }
 
@@ -313,14 +302,28 @@ final class CodexQuotaReader {
             sourceDate: Date(),
             sourceName: "Codex 官方用量接口",
             planType: json["plan_type"] as? String,
-            primaryUsedPercent: intValue(primary?["used_percent"]),
-            secondaryUsedPercent: intValue(secondary?["used_percent"]),
-            primaryWindowMinutes: secondsToMinutes(primary?["limit_window_seconds"]),
-            secondaryWindowMinutes: secondsToMinutes(secondary?["limit_window_seconds"]),
-            primaryResetAt: epochDate(primary?["reset_at"]),
-            secondaryResetAt: epochDate(secondary?["reset_at"]),
+            fiveHourUsedPercent: fiveHour?.usedPercent,
+            weeklyUsedPercent: weekly?.usedPercent,
+            fiveHourWindowMinutes: fiveHour?.durationMinutes,
+            weeklyWindowMinutes: weekly?.durationMinutes,
+            fiveHourResetAt: fiveHour?.resetAt,
+            weeklyResetAt: weekly?.resetAt,
             warningMessage: nil,
             errorMessage: nil
+        )
+    }
+
+    private func parseAPIWindow(_ value: Any?) -> ParsedWindow? {
+        guard let window = value as? [String: Any],
+              let durationMinutes = secondsToMinutes(window["limit_window_seconds"]),
+              quotaWindowKind(durationMinutes: durationMinutes) != nil else {
+            return nil
+        }
+
+        return ParsedWindow(
+            usedPercent: intValue(window["used_percent"]),
+            durationMinutes: durationMinutes,
+            resetAt: epochDate(window["reset_at"])
         )
     }
 
@@ -401,16 +404,35 @@ final class CodexQuotaReader {
         }
 
         let body = String(parts[1])
+        let windows = [
+            ParsedWindow(
+                usedPercent: intHeaderValue("x-codex-primary-used-percent", in: body),
+                durationMinutes: intHeaderValue("x-codex-primary-window-minutes", in: body) ?? 0,
+                resetAt: dateHeaderValue("x-codex-primary-reset-at", in: body)
+            ),
+            ParsedWindow(
+                usedPercent: intHeaderValue("x-codex-secondary-used-percent", in: body),
+                durationMinutes: intHeaderValue("x-codex-secondary-window-minutes", in: body) ?? 0,
+                resetAt: dateHeaderValue("x-codex-secondary-reset-at", in: body)
+            )
+        ]
+        let fiveHour = windows.first { quotaWindowKind(durationMinutes: $0.durationMinutes) == .fiveHour }
+        let weekly = windows.first { quotaWindowKind(durationMinutes: $0.durationMinutes) == .weekly }
+
+        guard fiveHour != nil || weekly != nil else {
+            return nil
+        }
+
         return UsageSnapshot(
             sourceDate: Date(timeIntervalSince1970: timestamp),
             sourceName: "本地日志（备用）",
             planType: headerValue("x-codex-plan-type", in: body),
-            primaryUsedPercent: intHeaderValue("x-codex-primary-used-percent", in: body),
-            secondaryUsedPercent: intHeaderValue("x-codex-secondary-used-percent", in: body),
-            primaryWindowMinutes: intHeaderValue("x-codex-primary-window-minutes", in: body),
-            secondaryWindowMinutes: intHeaderValue("x-codex-secondary-window-minutes", in: body),
-            primaryResetAt: dateHeaderValue("x-codex-primary-reset-at", in: body),
-            secondaryResetAt: dateHeaderValue("x-codex-secondary-reset-at", in: body),
+            fiveHourUsedPercent: fiveHour?.usedPercent,
+            weeklyUsedPercent: weekly?.usedPercent,
+            fiveHourWindowMinutes: fiveHour?.durationMinutes,
+            weeklyWindowMinutes: weekly?.durationMinutes,
+            fiveHourResetAt: fiveHour?.resetAt,
+            weeklyResetAt: weekly?.resetAt,
             warningMessage: "官方接口暂不可用：\(apiError.localizedDescription)",
             errorMessage: nil
         )
@@ -470,12 +492,12 @@ private extension UsageSnapshot {
             sourceDate: Date(),
             sourceName: "不可用",
             planType: nil,
-            primaryUsedPercent: nil,
-            secondaryUsedPercent: nil,
-            primaryWindowMinutes: nil,
-            secondaryWindowMinutes: nil,
-            primaryResetAt: nil,
-            secondaryResetAt: nil,
+            fiveHourUsedPercent: nil,
+            weeklyUsedPercent: nil,
+            fiveHourWindowMinutes: nil,
+            weeklyWindowMinutes: nil,
+            fiveHourResetAt: nil,
+            weeklyResetAt: nil,
             warningMessage: nil,
             errorMessage: error
         )
@@ -561,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.snapshot = snapshot
                 self.updateStatusTitle()
                 self.rebuildMenu()
-                debugLog("refreshed source=\(snapshot.sourceName) primary=\(snapshot.primaryUsedPercent.map(String.init) ?? "--") secondary=\(snapshot.secondaryUsedPercent.map(String.init) ?? "--")")
+                debugLog("refreshed source=\(snapshot.sourceName) fiveHour=\(snapshot.fiveHourUsedPercent.map(String.init) ?? "--") weekly=\(snapshot.weeklyUsedPercent.map(String.init) ?? "--")")
             }
         }
     }
@@ -573,9 +595,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let primary = formatPercent(snapshot.primaryRemainingPercent)
-        let secondary = formatPercent(snapshot.secondaryRemainingPercent)
-        let title = " 5h\(primary) W\(secondary)"
+        let fiveHour = formatPercent(snapshot.fiveHourRemainingPercent)
+        let weekly = formatPercent(snapshot.weeklyRemainingPercent)
+        let title = " 5h \(fiveHour) W \(weekly)"
         statusItem?.button?.title = title
         statusItem?.length = 126
         debugLog("status title set:\(title)")
@@ -593,8 +615,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelItem.view = QuotaPanelView(snapshot: snapshot)
                 menu.addItem(panelItem)
                 menu.addItem(NSMenuItem.separator())
-                addDisabledItem("5小时刷新：\(formatDate(snapshot.primaryResetAt))", to: menu)
-                addDisabledItem("一周刷新：\(formatDate(snapshot.secondaryResetAt))", to: menu)
+                addDisabledItem("5小时刷新：\(formatDate(snapshot.fiveHourResetAt))", to: menu)
+                addDisabledItem("一周刷新：\(formatDate(snapshot.weeklyResetAt))", to: menu)
                 if let warning = snapshot.warningMessage {
                     menu.addItem(NSMenuItem.separator())
                     addDisabledItem(warning, to: menu)
@@ -643,10 +665,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return dateFormatter.string(from: date)
     }
 }
-
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)
-debugLog("app.run starting")
-app.run()

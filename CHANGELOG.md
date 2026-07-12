@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.0 - 2026-07-13
+
+- Identify 5-hour and weekly quotas by their window duration instead of API field order.
+- Correctly show a weekly-only test window as `5h --% / W 100%`.
+- Apply the same duration mapping to official API and local-log fallback data.
+- Clamp malformed percentage values and preserve exhausted quota as 0% remaining.
+- Add regression tests for single-window, exhausted, and malformed responses.
+
 ## 2.1.0 - 2026-07-10
 
 - Add a native graphical quota panel with separate 5-hour and weekly meters.
