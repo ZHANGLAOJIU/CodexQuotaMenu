@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.0 - 2026-07-26
+
+- Read banked reset credits from Codex's dedicated reset-credit endpoint.
+- Show the available reset count and every available `Full reset` expiry time.
+- Sort banked resets by earliest expiry and keep redeemed or expired entries hidden.
+- Keep quota-window countdowns separate from banked reset expiration dates.
+- Treat banked reset failures as optional so normal quota monitoring keeps working.
+
 ## 2.3.0 - 2026-07-26
 
 - Show the exact local reset timestamp directly under each quota meter.

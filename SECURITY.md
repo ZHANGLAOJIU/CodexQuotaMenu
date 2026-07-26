@@ -2,7 +2,7 @@
 
 ## Trust model
 
-Codex Quota Menu needs authenticated Codex usage data. It reads the existing Codex credentials from `~/.codex/auth.json` and sends the access token only to `https://chatgpt.com/backend-api/wham/usage` over HTTPS.
+Codex Quota Menu needs authenticated Codex usage and banked reset data. It reads the existing Codex credentials from `~/.codex/auth.json` and sends the access token only to the `usage` and `rate-limit-reset-credits` endpoints under `https://chatgpt.com/backend-api/wham/` over HTTPS.
 
 The app does not persist, print, or log the access token, refresh token, ID token, or account ID. It uses an ephemeral `URLSession`, has no analytics, and makes no requests to project-owned infrastructure.
 

@@ -13,7 +13,7 @@ No browser tab. No manual refresh. No Electron helper. Codex Quota Menu is a tin
 ⚡ 5h71% W95%
 ```
 
-The percentages in the menu bar are **remaining quota**. Click the item to see used quota, exact reset times, the last sync time, and the active data source.
+The percentages in the menu bar are **remaining quota**. Click the item to see reset countdowns, available banked resets, each reset's exact expiry time, the last sync time, and the active data source.
 
 [中文说明](README.zh-CN.md)
 
@@ -30,7 +30,7 @@ It was built after a Codex desktop update changed how usage information was expo
 - Shows remaining quota for the 5-hour and weekly windows in the menu bar.
 - Opens a native graphical panel with color-coded progress meters.
 - Refreshes from the Codex usage service every 30 seconds.
-- Shows exact local reset timestamps when clicked.
+- Shows the available banked reset count and each reset's exact local expiry time.
 - Shows both remaining and used percentages.
 - Clearly labels whether data came from the official API or the local fallback.
 - Identifies windows by duration, so temporary single-window experiments cannot swap 5-hour and weekly values.
@@ -48,19 +48,22 @@ Codex                                      Plus
 5-hour limit
 [=====================---------] 71% remaining
                               resets in 4h 44m
-Exact reset: 2026-07-10 Fri 19:07:26 (local time)
 
 Weekly limit
 [============================--] 95% remaining
                               resets in 6d 17h
-Exact reset: 2026-07-17 Fri 07:23:25 (local time)
+
+Banked resets                         3 available
+Full reset              2026-07-27 18:30:00 expires
+Full reset              2026-08-01 09:15:00 expires
+Full reset              2026-08-13 21:45:00 expires
 
 Sync now
 Open Codex
 Quit
 ```
 
-Each meter shows both a live countdown and its exact reset timestamp in your Mac's local time zone. Values above are illustrative.
+Banked resets are sorted by earliest expiry. Dates use your Mac's local time zone and include seconds. Values above are illustrative.
 
 ## Requirements
 
@@ -117,10 +120,12 @@ The uninstaller removes the app and LaunchAgent. Troubleshooting logs are intent
         |
         | access token read in memory
         v
-https://chatgpt.com/backend-api/wham/usage
+        +-> https://chatgpt.com/backend-api/wham/usage
         |
-        v
-CodexQuotaMenu -> macOS NSStatusItem
+        +-> https://chatgpt.com/backend-api/wham/rate-limit-reset-credits
+                    |
+                    v
+          CodexQuotaMenu -> macOS NSStatusItem
 
 If the request fails:
 ~/.codex/logs_2.sqlite -> latest x-codex-* response headers
@@ -141,7 +146,7 @@ Codex Quota Menu is intentionally small enough to audit.
 
 - The app reads your existing Codex access token and account ID from `~/.codex/auth.json`.
 - Credentials are held in memory only for the request.
-- Requests go only to `https://chatgpt.com/backend-api/wham/usage`.
+- Requests go only to the Codex endpoints under `https://chatgpt.com/backend-api/wham/`: `usage` and `rate-limit-reset-credits`.
 - Tokens and response bodies are not logged.
 - There are no analytics, crash reporters, update services, or third-party SDKs.
 - The fallback reads a local SQLite database in read-only usage patterns through `/usr/bin/sqlite3`.

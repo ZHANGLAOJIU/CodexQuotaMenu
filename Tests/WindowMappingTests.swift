@@ -20,9 +20,48 @@ enum WindowMappingTests {
         precondition(malformedValues.fiveHourRemainingPercent == 100)
         precondition(malformedValues.weeklyRemainingPercent == 0)
 
+        let bankedData = """
+        {
+          "available_count": 3,
+          "credits": [
+            {
+              "id": "later",
+              "title": "Full reset",
+              "reset_type": "full",
+              "status": "available",
+              "expires_at": "2026-08-13T12:34:56Z"
+            },
+            {
+              "id": "redeemed",
+              "title": "Full reset",
+              "status": "redeemed",
+              "expires_at": "2026-07-20T00:00:00Z"
+            },
+            {
+              "id": "earlier",
+              "title": "Full reset",
+              "status": "available",
+              "expires_at": "2026-07-27T00:00:00.000Z"
+            },
+            {
+              "id": "middle",
+              "title": "Full reset",
+              "status": "available",
+              "expires_at": "2026-08-01T08:15:30Z"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let banked = try! parseBankedResetResponse(bankedData)
+        precondition(banked.availableCount == 3)
+        precondition(banked.availableCredits.map(\.id) == ["earlier", "middle", "later"])
+
         let utc = TimeZone(secondsFromGMT: 0)!
-        let resetDate = Date(timeIntervalSince1970: 0)
-        precondition(formatQuotaResetTime(resetDate, timeZone: utc) == "1970-01-01 周四 00:00:00")
+        let earliestExpiry = banked.availableCredits[0].expiresAt!
+        precondition(
+            formatBankedResetExpiry(earliestExpiry, timeZone: utc) ==
+            "2026-07-27 周一 00:00:00"
+        )
 
         print("Window mapping tests passed")
     }

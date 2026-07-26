@@ -21,8 +21,12 @@ func debugLog(_ message: String) {
 }
 
 final class QuotaPanelView: NSView {
-    private static let panelSize = NSSize(width: 350, height: 256)
+    private static let panelWidth: CGFloat = 350
+    private static let bankedRowsTop: CGFloat = 233
+    private static let bankedRowHeight: CGFloat = 30
     private let snapshot: UsageSnapshot
+    private let bankedCredits: [BankedResetCredit]
+    private let panelSize: NSSize
     private let syncTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -32,10 +36,14 @@ final class QuotaPanelView: NSView {
 
     init(snapshot: UsageSnapshot) {
         self.snapshot = snapshot
-        super.init(frame: NSRect(origin: .zero, size: Self.panelSize))
+        bankedCredits = snapshot.bankedResetSummary?.availableCredits ?? []
+        let rowCount = max(1, bankedCredits.count)
+        let sourceTop = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
+        panelSize = NSSize(width: Self.panelWidth, height: sourceTop + 17)
+        super.init(frame: NSRect(origin: .zero, size: panelSize))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Codex 5小时与一周剩余额度")
+        setAccessibilityLabel("Codex 剩余额度与可用限额重置")
     }
 
     @available(*, unavailable)
@@ -48,7 +56,7 @@ final class QuotaPanelView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        Self.panelSize
+        panelSize
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -84,13 +92,17 @@ final class QuotaPanelView: NSView {
             title: "一周额度",
             remainingPercent: snapshot.weeklyRemainingPercent,
             resetAt: snapshot.weeklyResetAt,
-            top: 139
+            top: 126
         )
 
+        drawBankedResets()
+
+        let rowCount = max(1, bankedCredits.count)
+        let sourceTop = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
         let source = "\(syncTimeFormatter.string(from: snapshot.sourceDate)) 同步 · \(snapshot.sourceName)"
         drawText(
             source,
-            in: NSRect(x: 16, y: 239, width: 318, height: 15),
+            in: NSRect(x: 16, y: sourceTop, width: 318, height: 15),
             font: .systemFont(ofSize: 10),
             color: .tertiaryLabelColor
         )
@@ -132,12 +144,90 @@ final class QuotaPanelView: NSView {
             color: .secondaryLabelColor,
             alignment: .right
         )
+    }
+
+    private func drawBankedResets() {
+        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
+        NSRect(x: 16, y: 195, width: 318, height: 1).fill()
+
         drawText(
-            formatExactResetTime(resetAt),
-            in: NSRect(x: 16, y: top + 58, width: 318, height: 18),
-            font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            color: .secondaryLabelColor
+            "使用限额重置",
+            in: NSRect(x: 16, y: 205, width: 180, height: 22),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .labelColor
         )
+
+        if let summary = snapshot.bankedResetSummary {
+            let badgeRect = NSRect(x: 250, y: 202, width: 84, height: 25)
+            NSColor.systemGreen.withAlphaComponent(0.14).setFill()
+            NSBezierPath(roundedRect: badgeRect, xRadius: 12.5, yRadius: 12.5).fill()
+            drawText(
+                "可用 \(summary.availableCount) 次",
+                in: NSRect(x: 250, y: 206, width: 84, height: 18),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+                color: .systemGreen,
+                alignment: .center
+            )
+        } else {
+            drawText(
+                "暂不可用",
+                in: NSRect(x: 250, y: 206, width: 84, height: 18),
+                font: .systemFont(ofSize: 11, weight: .medium),
+                color: .secondaryLabelColor,
+                alignment: .right
+            )
+        }
+
+        guard !bankedCredits.isEmpty else {
+            let message = snapshot.bankedResetSummary == nil ? "暂时无法获取 banked reset" : "暂无可用的重置次数"
+            drawText(
+                message,
+                in: NSRect(x: 16, y: Self.bankedRowsTop + 4, width: 318, height: 18),
+                font: .systemFont(ofSize: 11),
+                color: .secondaryLabelColor
+            )
+            return
+        }
+
+        for (index, credit) in bankedCredits.enumerated() {
+            let top = Self.bankedRowsTop + CGFloat(index) * Self.bankedRowHeight
+            drawText(
+                bankedResetTitle(credit),
+                in: NSRect(x: 16, y: top + 4, width: 96, height: 18),
+                font: .systemFont(ofSize: 11, weight: .medium),
+                color: .labelColor
+            )
+            drawText(
+                bankedResetExpiry(credit),
+                in: NSRect(x: 112, y: top + 4, width: 222, height: 18),
+                font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+                color: .secondaryLabelColor,
+                alignment: .right
+            )
+
+            if index < bankedCredits.count - 1 {
+                NSColor.separatorColor.withAlphaComponent(0.3).setFill()
+                NSRect(x: 16, y: top + Self.bankedRowHeight - 1, width: 318, height: 1).fill()
+            }
+        }
+    }
+
+    private func bankedResetTitle(_ credit: BankedResetCredit) -> String {
+        if let title = credit.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty {
+            return title
+        }
+        if let resetType = credit.resetType, !resetType.isEmpty {
+            return resetType.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+        return "Full reset"
+    }
+
+    private func bankedResetExpiry(_ credit: BankedResetCredit) -> String {
+        guard let expiresAt = credit.expiresAt else {
+            return "到期时间未知"
+        }
+        return "\(formatBankedResetExpiry(expiresAt)) 到期"
     }
 
     private func meterColor(for remainingPercent: Int) -> NSColor {
@@ -173,13 +263,6 @@ final class QuotaPanelView: NSView {
         return "即将重置"
     }
 
-    private func formatExactResetTime(_ date: Date?) -> String {
-        guard let date else {
-            return "具体重置时间：--"
-        }
-        return "具体重置时间：\(formatQuotaResetTime(date))（本地时间）"
-    }
-
     private func drawText(
         _ text: String,
         in rect: NSRect,
@@ -208,12 +291,20 @@ final class CodexQuotaReader {
         let resetAt: Date?
     }
 
+    private final class ReadState {
+        var usageSnapshot: UsageSnapshot?
+        var bankedResetResult: Result<BankedResetSummary, Error>?
+    }
+
     private let authURL = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/auth.json")
     private let databasePaths = [
         "\(NSHomeDirectory())/.codex/logs_2.sqlite",
         "\(NSHomeDirectory())/.codex/sqlite/logs_2.sqlite"
     ]
     private let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
+    private let bankedResetsURL = URL(
+        string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+    )!
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 12
@@ -225,48 +316,137 @@ final class CodexQuotaReader {
     func read(completion: @escaping (UsageSnapshot) -> Void) {
         do {
             let credentials = try readCredentials()
-            var request = URLRequest(url: usageURL)
-            request.httpMethod = "GET"
-            request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
-            request.setValue("CodexQuotaMenu/2.3", forHTTPHeaderField: "User-Agent")
+            let state = ReadState()
+            let stateQueue = DispatchQueue(label: "io.github.zhanglaojiu.codexquotamenu.read-state")
+            let group = DispatchGroup()
 
-            session.dataTask(with: request) { [weak self] data, response, error in
-                guard let self else {
-                    return
+            group.enter()
+            readUsage(credentials: credentials) { snapshot in
+                stateQueue.async {
+                    state.usageSnapshot = snapshot
+                    group.leave()
                 }
+            }
 
-                do {
-                    if let error {
-                        throw error
-                    }
-
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          (200...299).contains(httpResponse.statusCode) else {
-                        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                        throw NSError(
-                            domain: "CodexQuotaMenu.API",
-                            code: status,
-                            userInfo: [NSLocalizedDescriptionKey: "Codex 用量接口返回 HTTP \(status)"]
-                        )
-                    }
-
-                    guard let data else {
-                        throw NSError(
-                            domain: "CodexQuotaMenu.API",
-                            code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "Codex 用量接口没有返回数据"]
-                        )
-                    }
-
-                    completion(try self.parseAPIResponse(data))
-                } catch {
-                    completion(self.readLogFallback(apiError: error))
+            group.enter()
+            readBankedResets(credentials: credentials) { result in
+                stateQueue.async {
+                    state.bankedResetResult = result
+                    group.leave()
                 }
-            }.resume()
+            }
+
+            group.notify(queue: stateQueue) {
+                var snapshot = state.usageSnapshot ?? .empty(error: "Codex 用量读取未完成")
+                switch state.bankedResetResult {
+                case .success(let summary):
+                    snapshot.bankedResetSummary = summary
+                case .failure(let error):
+                    snapshot.bankedResetErrorMessage = "Banked reset 读取失败：\(error.localizedDescription)"
+                case nil:
+                    snapshot.bankedResetErrorMessage = "Banked reset 读取未完成"
+                }
+                completion(snapshot)
+            }
         } catch {
-            completion(readLogFallback(apiError: error))
+            var snapshot = readLogFallback(apiError: error)
+            snapshot.bankedResetErrorMessage = "Banked reset 读取失败：\(error.localizedDescription)"
+            completion(snapshot)
         }
+    }
+
+    private func readUsage(
+        credentials: (accessToken: String, accountID: String),
+        completion: @escaping (UsageSnapshot) -> Void
+    ) {
+        var request = URLRequest(url: usageURL)
+        request.httpMethod = "GET"
+        addAuthorizationHeaders(to: &request, credentials: credentials)
+
+        session.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                return
+            }
+
+            do {
+                let data = try self.validatedData(
+                    data: data,
+                    response: response,
+                    error: error,
+                    endpointName: "Codex 用量接口"
+                )
+                completion(try self.parseAPIResponse(data))
+            } catch {
+                completion(self.readLogFallback(apiError: error))
+            }
+        }.resume()
+    }
+
+    private func readBankedResets(
+        credentials: (accessToken: String, accountID: String),
+        completion: @escaping (Result<BankedResetSummary, Error>) -> Void
+    ) {
+        var request = URLRequest(url: bankedResetsURL)
+        request.httpMethod = "GET"
+        addAuthorizationHeaders(to: &request, credentials: credentials)
+        request.setValue("Codex Desktop", forHTTPHeaderField: "originator")
+
+        session.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                return
+            }
+
+            do {
+                let data = try self.validatedData(
+                    data: data,
+                    response: response,
+                    error: error,
+                    endpointName: "Banked reset 接口"
+                )
+                completion(.success(try parseBankedResetResponse(data)))
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
+
+    private func addAuthorizationHeaders(
+        to request: inout URLRequest,
+        credentials: (accessToken: String, accountID: String)
+    ) {
+        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
+        request.setValue("CodexQuotaMenu/2.4", forHTTPHeaderField: "User-Agent")
+    }
+
+    private func validatedData(
+        data: Data?,
+        response: URLResponse?,
+        error: Error?,
+        endpointName: String
+    ) throws -> Data {
+        if let error {
+            throw error
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw NSError(
+                domain: "CodexQuotaMenu.API",
+                code: status,
+                userInfo: [NSLocalizedDescriptionKey: "\(endpointName)返回 HTTP \(status)"]
+            )
+        }
+
+        guard let data else {
+            throw NSError(
+                domain: "CodexQuotaMenu.API",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "\(endpointName)没有返回数据"]
+            )
+        }
+        return data
     }
 
     private func readCredentials() throws -> (accessToken: String, accountID: String) {
@@ -536,7 +716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Codex")
             button.imagePosition = .imageLeading
             button.title = " 同步中"
-            button.toolTip = "Codex 5小时 / 一周用量剩余"
+            button.toolTip = "Codex 5小时 / 一周剩余额度与 banked resets"
             debugLog("status button created")
         } else {
             debugLog("status button missing")
@@ -590,7 +770,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.snapshot = snapshot
                 self.updateStatusTitle()
                 self.rebuildMenu()
-                debugLog("refreshed source=\(snapshot.sourceName) fiveHour=\(snapshot.fiveHourUsedPercent.map(String.init) ?? "--") weekly=\(snapshot.weeklyUsedPercent.map(String.init) ?? "--")")
+                let bankedCount = snapshot.bankedResetSummary?.availableCount
+                debugLog(
+                    "refreshed source=\(snapshot.sourceName) " +
+                    "fiveHour=\(snapshot.fiveHourUsedPercent.map(String.init) ?? "--") " +
+                    "weekly=\(snapshot.weeklyUsedPercent.map(String.init) ?? "--") " +
+                    "banked=\(bankedCount.map(String.init) ?? "--")"
+                )
             }
         }
     }
@@ -621,9 +807,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let panelItem = NSMenuItem()
                 panelItem.view = QuotaPanelView(snapshot: snapshot)
                 menu.addItem(panelItem)
-                if let warning = snapshot.warningMessage {
+                let warnings = [snapshot.warningMessage, snapshot.bankedResetErrorMessage].compactMap { $0 }
+                if !warnings.isEmpty {
                     menu.addItem(NSMenuItem.separator())
-                    addDisabledItem(warning, to: menu)
+                    for warning in warnings {
+                        addDisabledItem(warning, to: menu)
+                    }
                 }
             }
         } else {
