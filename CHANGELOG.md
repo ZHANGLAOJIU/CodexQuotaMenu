@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.0 - 2026-07-26
+
+- Show the exact local reset timestamp directly under each quota meter.
+- Keep the live reset countdown alongside the absolute date and time.
+- Display an explicit unknown value when a quota window has no reset timestamp.
+- Use isolated Swift module caches for reproducible local builds.
+
 ## 2.2.0 - 2026-07-13
 
 - Identify 5-hour and weekly quotas by their window duration instead of API field order.

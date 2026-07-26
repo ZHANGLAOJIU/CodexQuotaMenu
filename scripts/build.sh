@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 APP_DIR="$BUILD_DIR/CodexQuotaMenu.app"
 CONTENTS_DIR="$APP_DIR/Contents"
+MODULE_CACHE_DIR="$BUILD_DIR/module-cache"
 
 if ! command -v swiftc >/dev/null 2>&1; then
     echo "error: swiftc was not found. Install Xcode Command Line Tools with: xcode-select --install" >&2
@@ -13,11 +14,13 @@ if ! command -v swiftc >/dev/null 2>&1; then
 fi
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
+mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources" "$MODULE_CACHE_DIR"
 
 cp "$ROOT_DIR/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/PkgInfo" "$CONTENTS_DIR/PkgInfo"
 
+CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
+SWIFT_MODULECACHE_PATH="$MODULE_CACHE_DIR" \
 swiftc \
     -O \
     -warnings-as-errors \

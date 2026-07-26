@@ -21,7 +21,7 @@ func debugLog(_ message: String) {
 }
 
 final class QuotaPanelView: NSView {
-    private static let panelSize = NSSize(width: 350, height: 216)
+    private static let panelSize = NSSize(width: 350, height: 256)
     private let snapshot: UsageSnapshot
     private let syncTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -84,13 +84,13 @@ final class QuotaPanelView: NSView {
             title: "一周额度",
             remainingPercent: snapshot.weeklyRemainingPercent,
             resetAt: snapshot.weeklyResetAt,
-            top: 126
+            top: 139
         )
 
         let source = "\(syncTimeFormatter.string(from: snapshot.sourceDate)) 同步 · \(snapshot.sourceName)"
         drawText(
             source,
-            in: NSRect(x: 16, y: 198, width: 318, height: 15),
+            in: NSRect(x: 16, y: 239, width: 318, height: 15),
             font: .systemFont(ofSize: 10),
             color: .tertiaryLabelColor
         )
@@ -132,6 +132,12 @@ final class QuotaPanelView: NSView {
             color: .secondaryLabelColor,
             alignment: .right
         )
+        drawText(
+            formatExactResetTime(resetAt),
+            in: NSRect(x: 16, y: top + 58, width: 318, height: 18),
+            font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            color: .secondaryLabelColor
+        )
     }
 
     private func meterColor(for remainingPercent: Int) -> NSColor {
@@ -147,7 +153,7 @@ final class QuotaPanelView: NSView {
 
     private func formatCountdown(_ date: Date?) -> String {
         guard let date else {
-            return "刷新时间未知"
+            return "重置时间未知"
         }
 
         let totalMinutes = max(0, Int(date.timeIntervalSinceNow) / 60)
@@ -156,15 +162,22 @@ final class QuotaPanelView: NSView {
         let minutes = totalMinutes % 60
 
         if days > 0 {
-            return "\(days)天 \(hours)小时后刷新"
+            return "\(days)天 \(hours)小时后重置"
         }
         if hours > 0 {
-            return "\(hours)小时 \(minutes)分后刷新"
+            return "\(hours)小时 \(minutes)分后重置"
         }
         if minutes > 0 {
-            return "\(minutes)分后刷新"
+            return "\(minutes)分后重置"
         }
-        return "即将刷新"
+        return "即将重置"
+    }
+
+    private func formatExactResetTime(_ date: Date?) -> String {
+        guard let date else {
+            return "具体重置时间：--"
+        }
+        return "具体重置时间：\(formatQuotaResetTime(date))（本地时间）"
     }
 
     private func drawText(
@@ -216,7 +229,7 @@ final class CodexQuotaReader {
             request.httpMethod = "GET"
             request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
-            request.setValue("CodexQuotaMenu/2.2", forHTTPHeaderField: "User-Agent")
+            request.setValue("CodexQuotaMenu/2.3", forHTTPHeaderField: "User-Agent")
 
             session.dataTask(with: request) { [weak self] data, response, error in
                 guard let self else {
@@ -507,12 +520,6 @@ private extension UsageSnapshot {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let reader = CodexQuotaReader()
     private var statusItem: NSStatusItem?
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter
-    }()
 
     private var snapshot: UsageSnapshot?
     private var refreshTimer: Timer?
@@ -614,9 +621,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let panelItem = NSMenuItem()
                 panelItem.view = QuotaPanelView(snapshot: snapshot)
                 menu.addItem(panelItem)
-                menu.addItem(NSMenuItem.separator())
-                addDisabledItem("5小时刷新：\(formatDate(snapshot.fiveHourResetAt))", to: menu)
-                addDisabledItem("一周刷新：\(formatDate(snapshot.weeklyResetAt))", to: menu)
                 if let warning = snapshot.warningMessage {
                     menu.addItem(NSMenuItem.separator())
                     addDisabledItem(warning, to: menu)
@@ -658,10 +662,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return "\(value)%"
     }
 
-    private func formatDate(_ date: Date?) -> String {
-        guard let date else {
-            return "--"
-        }
-        return dateFormatter.string(from: date)
-    }
 }

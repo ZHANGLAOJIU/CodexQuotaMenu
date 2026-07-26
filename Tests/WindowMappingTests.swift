@@ -20,6 +20,10 @@ enum WindowMappingTests {
         precondition(malformedValues.fiveHourRemainingPercent == 100)
         precondition(malformedValues.weeklyRemainingPercent == 0)
 
+        let utc = TimeZone(secondsFromGMT: 0)!
+        let resetDate = Date(timeIntervalSince1970: 0)
+        precondition(formatQuotaResetTime(resetDate, timeZone: utc) == "1970-01-01 周四 00:00:00")
+
         print("Window mapping tests passed")
     }
 

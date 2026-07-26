@@ -48,20 +48,19 @@ Codex                                      Plus
 5-hour limit
 [=====================---------] 71% remaining
                               resets in 4h 44m
+Exact reset: 2026-07-10 Fri 19:07:26 (local time)
 
 Weekly limit
 [============================--] 95% remaining
                               resets in 6d 17h
-
-5-hour reset: 2026-07-10 19:07:26
-Weekly reset: 2026-07-17 07:23:25
+Exact reset: 2026-07-17 Fri 07:23:25 (local time)
 
 Sync now
 Open Codex
 Quit
 ```
 
-Dates are formatted in your Mac's local time zone. Values above are illustrative.
+Each meter shows both a live countdown and its exact reset timestamp in your Mac's local time zone. Values above are illustrative.
 
 ## Requirements
 

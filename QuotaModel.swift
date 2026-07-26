@@ -20,6 +20,14 @@ func quotaWindowKind(durationMinutes: Int?) -> QuotaWindowKind? {
     }
 }
 
+func formatQuotaResetTime(_ date: Date, timeZone: TimeZone = .current) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "zh_CN")
+    formatter.timeZone = timeZone
+    formatter.dateFormat = "yyyy-MM-dd EEE HH:mm:ss"
+    return formatter.string(from: date)
+}
+
 struct UsageSnapshot {
     let sourceDate: Date
     let sourceName: String
