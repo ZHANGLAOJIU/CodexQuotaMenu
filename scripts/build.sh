@@ -26,7 +26,11 @@ swiftc \
     -warnings-as-errors \
     -framework AppKit \
     -framework Foundation \
+    -framework Security \
     "$ROOT_DIR/QuotaModel.swift" \
+    "$ROOT_DIR/OpenCodeGoModel.swift" \
+    "$ROOT_DIR/OpenCodeGoCookieStore.swift" \
+    "$ROOT_DIR/OpenCodeGoReader.swift" \
     "$ROOT_DIR/CodexQuotaMenu.swift" \
     "$ROOT_DIR/main.swift" \
     -o "$CONTENTS_DIR/MacOS/CodexQuotaMenu"

@@ -24,8 +24,10 @@ final class QuotaPanelView: NSView {
     private static let panelWidth: CGFloat = 350
     private static let bankedRowsTop: CGFloat = 233
     private static let bankedRowHeight: CGFloat = 30
+    private static let metricHeight: CGFloat = 69
     private let snapshot: UsageSnapshot
     private let bankedCredits: [BankedResetCredit]
+    private let openCodeGoAccounts: [(label: String, snapshot: OpenCodeGoSnapshot?)]
     private let panelSize: NSSize
     private let syncTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -34,16 +36,19 @@ final class QuotaPanelView: NSView {
         return formatter
     }()
 
-    init(snapshot: UsageSnapshot) {
+    init(snapshot: UsageSnapshot, openCodeGoAccounts: [(label: String, snapshot: OpenCodeGoSnapshot?)]) {
         self.snapshot = snapshot
+        self.openCodeGoAccounts = openCodeGoAccounts
         bankedCredits = snapshot.bankedResetSummary?.availableCredits ?? []
         let rowCount = max(1, bankedCredits.count)
-        let sourceTop = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
+        let codexBottom = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
+        let openCodeTop = codexBottom + 12
+        let sourceTop = openCodeTop + Self.openCodeSectionHeight(accounts: openCodeGoAccounts) + 8
         panelSize = NSSize(width: Self.panelWidth, height: sourceTop + 17)
         super.init(frame: NSRect(origin: .zero, size: panelSize))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Codex 剩余额度与可用限额重置")
+        setAccessibilityLabel("Codex 与 OpenCode Go 剩余额度")
     }
 
     @available(*, unavailable)
@@ -98,14 +103,138 @@ final class QuotaPanelView: NSView {
         drawBankedResets()
 
         let rowCount = max(1, bankedCredits.count)
-        let sourceTop = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
-        let source = "\(syncTimeFormatter.string(from: snapshot.sourceDate)) 同步 · \(snapshot.sourceName)"
+        let codexBottom = Self.bankedRowsTop + CGFloat(rowCount) * Self.bankedRowHeight + 8
+        let openCodeTop = codexBottom + 12
+        drawOpenCodeGo(at: openCodeTop)
+
+        let sourceTop = openCodeTop + Self.openCodeSectionHeight(accounts: openCodeGoAccounts) + 8
+        var source = "\(syncTimeFormatter.string(from: snapshot.sourceDate)) 同步 · \(snapshot.sourceName)"
+        for account in openCodeGoAccounts {
+            if let accountSnapshot = account.snapshot {
+                source += " · \(account.label) \(syncTimeFormatter.string(from: accountSnapshot.lastUpdated)) 同步"
+            }
+        }
         drawText(
             source,
             in: NSRect(x: 16, y: sourceTop, width: 318, height: 15),
             font: .systemFont(ofSize: 10),
             color: .tertiaryLabelColor
         )
+    }
+
+    private static func openCodeSectionHeight(accounts: [(label: String, snapshot: OpenCodeGoSnapshot?)]) -> CGFloat {
+        accounts.reduce(CGFloat(0)) { partial, account in
+            partial + openCodeSectionHeight(snapshot: account.snapshot)
+        } + CGFloat(max(0, accounts.count - 1)) * 12
+    }
+
+    private static func openCodeSectionHeight(snapshot: OpenCodeGoSnapshot?) -> CGFloat {
+        guard let snapshot else {
+            return 30 + 24
+        }
+        var height: CGFloat = 30 + 3 * metricHeight
+        if snapshot.errorMessage != nil {
+            height += 18
+        }
+        if snapshot.isStale {
+            height += 16
+        }
+        return height
+    }
+
+    private func drawOpenCodeGo(at top: CGFloat) {
+        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
+        NSRect(x: 16, y: top, width: 318, height: 1).fill()
+
+        var cursor = top
+        for (index, account) in openCodeGoAccounts.enumerated() {
+            if index > 0 {
+                cursor += 12
+            }
+            drawOpenCodeGoSection(account: account, at: cursor)
+            cursor += Self.openCodeSectionHeight(snapshot: account.snapshot)
+        }
+    }
+
+    private func drawOpenCodeGoSection(account: (label: String, snapshot: OpenCodeGoSnapshot?), at top: CGFloat) {
+        drawText(
+            account.label,
+            in: NSRect(x: 16, y: top + 7, width: 220, height: 22),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .labelColor
+        )
+
+        if let snapshot = account.snapshot {
+            let badgeText: String
+            let badgeColor: NSColor
+            if snapshot.errorMessage != nil {
+                badgeText = "不可用"
+                badgeColor = .systemRed
+            } else if snapshot.isStale {
+                badgeText = "同步延迟"
+                badgeColor = .systemOrange
+            } else {
+                badgeText = "实时"
+                badgeColor = .systemGreen
+            }
+            drawText(
+                badgeText,
+                in: NSRect(x: 250, y: top + 9, width: 84, height: 18),
+                font: .systemFont(ofSize: 11, weight: .medium),
+                color: badgeColor,
+                alignment: .right
+            )
+        }
+
+        let metricTop = top + 40
+        guard let snapshot = account.snapshot else {
+            drawText(
+                "尚未同步 \(account.label)",
+                in: NSRect(x: 16, y: metricTop, width: 318, height: 18),
+                font: .systemFont(ofSize: 11),
+                color: .secondaryLabelColor
+            )
+            return
+        }
+
+        drawMetric(
+            title: "5 小时额度",
+            remainingPercent: snapshot.rolling5h?.remainingPercentInt,
+            resetAt: snapshot.rolling5h?.resetAt,
+            top: metricTop
+        )
+        drawMetric(
+            title: "一周额度",
+            remainingPercent: snapshot.weekly?.remainingPercentInt,
+            resetAt: snapshot.weekly?.resetAt,
+            top: metricTop + Self.metricHeight
+        )
+        drawMetric(
+            title: "每月额度",
+            remainingPercent: snapshot.monthly?.remainingPercentInt,
+            resetAt: snapshot.monthly?.resetAt,
+            top: metricTop + Self.metricHeight * 2
+        )
+
+        var warningTop = metricTop + Self.metricHeight * 3 + 2
+        if let errorMessage = snapshot.errorMessage {
+            drawText(
+                errorMessage,
+                in: NSRect(x: 16, y: warningTop, width: 318, height: 16),
+                font: .systemFont(ofSize: 10.5),
+                color: .systemRed
+            )
+            warningTop += 18
+        }
+        if snapshot.isStale {
+            let minutes = max(1, Int(Date().timeIntervalSince(snapshot.lastUpdated) / 60))
+            drawText(
+                "\(minutes) 分钟前同步 · 暂时无法刷新",
+                in: NSRect(x: 16, y: warningTop, width: 318, height: 15),
+                font: .systemFont(ofSize: 10.5),
+                color: .secondaryLabelColor
+            )
+        }
     }
 
     private func drawMetric(title: String, remainingPercent: Int?, resetAt: Date?, top: CGFloat) {
@@ -697,34 +826,62 @@ private extension UsageSnapshot {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private enum MenuBarProvider: String {
+        case codex
+        case openCodeGo
+    }
+
     private let reader = CodexQuotaReader()
+    private let openCodeGoReader = OpenCodeGoReader()
     private var statusItem: NSStatusItem?
 
     private var snapshot: UsageSnapshot?
     private var refreshTimer: Timer?
     private var isRefreshing = false
 
+    private struct OpenCodeGoAccountState {
+        let keychainAccount: String
+        let defaultsKey: String
+        let label: String
+        var workspaceOverride: String?
+        var snapshot: OpenCodeGoSnapshot?
+        var lastAttempt = Date.distantPast
+        var failureCount = 0
+        var isRefreshing = false
+        var needsCookie = false
+    }
+
+    private var openCodeGoAccounts: [OpenCodeGoAccountState] = []
+    private var selectedMenuBarProvider: MenuBarProvider = .codex
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugLog("applicationDidFinishLaunching")
         NSApp.setActivationPolicy(.accessory)
-        statusItem = NSStatusBar.system.statusItem(withLength: 126)
+        if let rawValue = UserDefaults.standard.string(forKey: "SelectedMenuBarProvider"),
+           let provider = MenuBarProvider(rawValue: rawValue) {
+            selectedMenuBarProvider = provider
+        }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.isVisible = true
+
+        loadOpenCodeGoAccounts()
 
         if let button = statusItem?.button {
             button.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
             button.image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Codex")
             button.imagePosition = .imageLeading
             button.title = " 同步中"
-            button.toolTip = "Codex 5小时 / 一周剩余额度与 banked resets"
+            button.toolTip = "Codex 与 OpenCode Go 剩余额度"
             debugLog("status button created")
         } else {
             debugLog("status button missing")
         }
 
         refresh()
+        refreshOpenCodeGo(force: true)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.refresh()
+            self?.refreshAll()
         }
     }
 
@@ -732,8 +889,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        let stale = openCodeGoAccounts.contains {
+            $0.snapshot == nil
+                || Date().timeIntervalSince($0.lastAttempt) > 30
+        }
+        if stale {
+            refreshOpenCodeGo(force: true)
+        }
+    }
+
     @objc private func refreshNow() {
         refresh()
+        refreshOpenCodeGo(force: true)
     }
 
     @objc private func openCodex() {
@@ -750,8 +918,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
+    @objc private func openOpenCodeGo(_ sender: Any?) {
+        let index = accountIndex(from: sender)
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        let account = openCodeGoAccounts[index]
+        let workspaceID = account.snapshot?.workspaceID
+            ?? OpenCodeGoParser.normalizeWorkspaceID(account.workspaceOverride)
+        let url: URL
+        if let workspaceID,
+           let dashboardURL = URL(string: "https://opencode.ai/workspace/\(workspaceID)/go") {
+            url = dashboardURL
+        } else {
+            url = URL(string: "https://opencode.ai/auth")!
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func accountIndex(from sender: Any?) -> Int {
+        if let item = sender as? NSMenuItem,
+           let index = item.representedObject as? Int {
+            return index
+        }
+        return 0
+    }
+
+    @objc private func setOpenCodeCookie(_ sender: Any?) {
+        let index = accountIndex(from: sender)
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        let account = openCodeGoAccounts[index]
+        let alert = NSAlert()
+        alert.messageText = "设置 \(account.label) Cookie"
+        alert.informativeText = "粘贴浏览器 Cookie 即可，只会保存 auth 相关字段"
+        let textField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        textField.placeholderString = "auth=...; __Host-auth=..."
+        alert.accessoryView = textField
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+        guard let filtered = OpenCodeGoParser.filteredCookieHeader(from: textField.stringValue),
+              OpenCodeGoCookieStore.saveManualCookie(filtered, account: account.keychainAccount) else {
+            NSSound.beep()
+            return
+        }
+        openCodeGoAccounts[index].needsCookie = false
+        refreshOpenCodeGo(force: true)
+    }
+
+    @objc private func clearOpenCodeCookie(_ sender: Any?) {
+        let index = accountIndex(from: sender)
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        let account = openCodeGoAccounts[index]
+        OpenCodeGoCookieStore.clearManualCookie(account: account.keychainAccount)
+        openCodeGoAccounts[index].needsCookie = false
+        refreshOpenCodeGo(force: true)
+    }
+
+    @objc private func setOpenCodeWorkspace(_ sender: Any?) {
+        let index = accountIndex(from: sender)
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        let account = openCodeGoAccounts[index]
+        let alert = NSAlert()
+        alert.messageText = "设置 \(account.label) Workspace"
+        alert.informativeText = "可填写 wrk_... 或完整 workspace 链接"
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        textField.placeholderString = "wrk_... 或 https://opencode.ai/workspace/..."
+        textField.stringValue = account.workspaceOverride ?? ""
+        alert.accessoryView = textField
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+        let value = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            UserDefaults.standard.removeObject(forKey: account.defaultsKey)
+            openCodeGoAccounts[index].workspaceOverride = nil
+        } else {
+            guard OpenCodeGoParser.normalizeWorkspaceID(value) != nil else {
+                NSSound.beep()
+                return
+            }
+            UserDefaults.standard.set(value, forKey: account.defaultsKey)
+            openCodeGoAccounts[index].workspaceOverride = value
+        }
+        refreshOpenCodeGo(force: true)
+    }
+
+    @objc private func menuBarProviderChanged(_ sender: NSSegmentedControl) {
+        selectedMenuBarProvider = sender.selectedSegment == 0 ? .codex : .openCodeGo
+        UserDefaults.standard.set(selectedMenuBarProvider.rawValue, forKey: "SelectedMenuBarProvider")
+        updateStatusTitle()
+    }
+
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func refreshAll() {
+        refresh()
+        refreshOpenCodeGo(force: false)
     }
 
     private func refresh() {
@@ -781,23 +1056,203 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func updateStatusTitle() {
-        guard let snapshot, snapshot.errorMessage == nil else {
-            statusItem?.button?.title = " --"
-            debugLog("status title set: --")
+    private func refreshOpenCodeGo(force: Bool) {
+        for index in openCodeGoAccounts.indices {
+            refreshOpenCodeGoAccount(at: index, force: force)
+        }
+    }
+
+    private func refreshOpenCodeGoAccount(at index: Int, force: Bool) {
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        var account = openCodeGoAccounts[index]
+        guard !account.isRefreshing else {
+            return
+        }
+        if account.needsCookie, !force {
             return
         }
 
-        let fiveHour = formatPercent(snapshot.fiveHourRemainingPercent)
-        let weekly = formatPercent(snapshot.weeklyRemainingPercent)
-        let title = " 5h \(fiveHour) W \(weekly)"
-        statusItem?.button?.title = title
-        statusItem?.length = 126
-        debugLog("status title set:\(title)")
+        let interval: TimeInterval
+        switch account.failureCount {
+        case 0:
+            interval = 60
+        case 1:
+            interval = 120
+        default:
+            interval = 300
+        }
+        if !force, Date().timeIntervalSince(account.lastAttempt) < interval {
+            return
+        }
+
+        account.isRefreshing = true
+        account.lastAttempt = Date()
+        openCodeGoAccounts[index] = account
+
+        guard let cookie = OpenCodeGoCookieStore.loadManualCookie(account: account.keychainAccount) else {
+            finishOpenCodeGoRefresh(
+                at: index,
+                snapshot: OpenCodeGoSnapshot.failure(
+                    OpenCodeGoUsageError.cookieMissing,
+                    workspaceID: nil,
+                    previous: account.snapshot
+                )
+            )
+            return
+        }
+        openCodeGoReader.read(
+            cookie: cookie,
+            workspaceOverride: account.workspaceOverride,
+            previous: account.snapshot
+        ) { [weak self] newSnapshot in
+            DispatchQueue.main.async {
+                self?.finishOpenCodeGoRefresh(at: index, snapshot: newSnapshot)
+            }
+        }
+    }
+
+    private func finishOpenCodeGoRefresh(at index: Int, snapshot newSnapshot: OpenCodeGoSnapshot) {
+        guard openCodeGoAccounts.indices.contains(index) else {
+            return
+        }
+        var account = openCodeGoAccounts[index]
+        account.isRefreshing = false
+        account.snapshot = newSnapshot
+        account.failureCount = newSnapshot.errorMessage == nil ? 0 : account.failureCount + 1
+        let cookieMissing = OpenCodeGoUsageError.cookieMissing.errorDescription
+        let invalidCredentials = OpenCodeGoUsageError.invalidCredentials.errorDescription
+        account.needsCookie = newSnapshot.errorMessage == cookieMissing
+            || newSnapshot.errorMessage == invalidCredentials
+        if newSnapshot.errorMessage == invalidCredentials {
+            OpenCodeGoCookieStore.clearManualCookie(account: account.keychainAccount)
+        }
+        openCodeGoAccounts[index] = account
+        updateStatusTitle()
+        rebuildMenu()
+
+        let workspace = newSnapshot.workspaceID.map { String($0.prefix(4)) + "****" } ?? "--"
+        let rolling = newSnapshot.rolling5h.map { String($0.remainingPercentInt) } ?? "--"
+        let weekly = newSnapshot.weekly.map { String($0.remainingPercentInt) } ?? "--"
+        let monthly = newSnapshot.monthly.map { String($0.remainingPercentInt) } ?? "--"
+        debugLog(
+            "opencode[\(index)] \(account.label) refreshed ok=\(newSnapshot.errorMessage == nil) " +
+            "rolling=\(rolling) weekly=\(weekly) monthly=\(monthly) workspace=\(workspace) " +
+            "error=\(newSnapshot.errorMessage ?? "none")"
+        )
+    }
+
+    private func loadOpenCodeGoAccounts() {
+        let defaults = UserDefaults.standard
+        openCodeGoAccounts = [
+            OpenCodeGoAccountState(
+                keychainAccount: OpenCodeGoCookieStore.primaryAccount,
+                defaultsKey: "OpenCodeGoWorkspaceOverride",
+                label: "OpenCode Go 1"
+            ),
+            OpenCodeGoAccountState(
+                keychainAccount: OpenCodeGoCookieStore.secondaryAccount,
+                defaultsKey: "OpenCodeGoWorkspaceOverride2",
+                label: "OpenCode Go 2"
+            )
+        ]
+        for index in openCodeGoAccounts.indices {
+            if let saved = defaults.string(forKey: openCodeGoAccounts[index].defaultsKey),
+               !saved.isEmpty {
+                openCodeGoAccounts[index].workspaceOverride = saved
+            }
+        }
+        for key in ["CODEXBAR_OPENCODEGO_WORKSPACE_ID", "CODEXBAR_OPENCODE_WORKSPACE_ID"] {
+            if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
+                openCodeGoAccounts[0].workspaceOverride = value
+                return
+            }
+        }
+    }
+
+    private func updateStatusTitle() {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        switch selectedMenuBarProvider {
+        case .codex:
+            guard let snapshot, snapshot.errorMessage == nil else {
+                button.image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Codex")
+                button.title = " --"
+                debugLog("status title set: --")
+                updateStatusItemLength()
+                return
+            }
+            button.image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Codex")
+            let fiveHour = snapshot.fiveHourRemainingPercent
+            let weekly = snapshot.weeklyRemainingPercent
+            if let fiveHour, let weekly {
+                button.title = " 5h\(fiveHour)% W\(weekly)%"
+            } else if let fiveHour {
+                button.title = " 5h\(fiveHour)%"
+            } else if let weekly {
+                button.title = " W\(weekly)%"
+            } else {
+                button.title = " --"
+            }
+            debugLog("status title set:\(button.title)")
+
+        case .openCodeGo:
+            let parts = openCodeGoAccounts.compactMap { account -> String? in
+                guard let snapshot = account.snapshot, snapshot.hasAnyData else {
+                    return nil
+                }
+                let fiveHour = snapshot.rolling5h.map { "\($0.remainingPercentInt)%" } ?? "--"
+                let weekly = snapshot.weekly.map { "\($0.remainingPercentInt)%" } ?? "--"
+                return "\(fiveHour) W\(weekly)"
+            }
+            guard !parts.isEmpty else {
+                button.image = NSImage(systemSymbolName: "diamond.fill", accessibilityDescription: "OpenCode Go")
+                button.title = " --"
+                debugLog("status title set: --")
+                updateStatusItemLength()
+                return
+            }
+            button.image = NSImage(systemSymbolName: "diamond.fill", accessibilityDescription: "OpenCode Go")
+            button.title = " " + parts.joined(separator: " · ")
+            debugLog("status title set:\(button.title)")
+        }
+        updateStatusItemLength()
+        updateOpenCodeGoTooltip()
+    }
+
+    private func updateOpenCodeGoTooltip() {
+        guard let button = statusItem?.button else {
+            return
+        }
+        var lines = ["Codex 与 OpenCode Go 剩余额度"]
+        for account in openCodeGoAccounts {
+            guard let snapshot = account.snapshot else {
+                lines.append("\(account.label)：尚未同步")
+                continue
+            }
+            let rolling = snapshot.rolling5h.map { "\($0.remainingPercentInt)%" } ?? "--"
+            let weekly = snapshot.weekly.map { "\($0.remainingPercentInt)%" } ?? "--"
+            let monthly = snapshot.monthly.map { "\($0.remainingPercentInt)%" } ?? "--"
+            let state = snapshot.errorMessage ?? (snapshot.isStale ? "同步延迟" : "实时")
+            lines.append("\(account.label)：5h \(rolling) · W \(weekly) · M \(monthly)（\(state)）")
+        }
+        button.toolTip = lines.joined(separator: "\n")
+    }
+
+    private func updateStatusItemLength() {
+        guard let button = statusItem?.button else {
+            return
+        }
+        let width = button.fittingSize.width
+        statusItem?.length = max(28, ceil(width) + 10)
     }
 
     private func rebuildMenu() {
         let menu = NSMenu()
+        menu.delegate = self
 
         if let snapshot {
             if let error = snapshot.errorMessage {
@@ -805,7 +1260,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 addDisabledItem(error, to: menu)
             } else {
                 let panelItem = NSMenuItem()
-                panelItem.view = QuotaPanelView(snapshot: snapshot)
+                panelItem.view = QuotaPanelView(
+                    snapshot: snapshot,
+                    openCodeGoAccounts: openCodeGoAccounts.map {
+                        (label: $0.label, snapshot: $0.snapshot)
+                    }
+                )
                 menu.addItem(panelItem)
                 let warnings = [snapshot.warningMessage, snapshot.bankedResetErrorMessage].compactMap { $0 }
                 if !warnings.isEmpty {
@@ -819,6 +1279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             addDisabledItem("Codex 用量加载中", to: menu)
         }
 
+        menu.addItem(makeMenuBarProviderSelector())
         menu.addItem(NSMenuItem.separator())
 
         let refreshTitle = isRefreshing ? "正在同步…" : "立即同步"
@@ -831,6 +1292,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openItem.target = self
         menu.addItem(openItem)
 
+        for (index, account) in openCodeGoAccounts.enumerated() {
+            let openGoItem = NSMenuItem(
+                title: "打开 \(account.label)",
+                action: #selector(openOpenCodeGo(_:)),
+                keyEquivalent: index == 0 ? "g" : ""
+            )
+            openGoItem.target = self
+            openGoItem.representedObject = index
+            menu.addItem(openGoItem)
+
+            let cookieItem = NSMenuItem(
+                title: "设置 \(account.label) Cookie…",
+                action: #selector(setOpenCodeCookie(_:)),
+                keyEquivalent: ""
+            )
+            cookieItem.target = self
+            cookieItem.representedObject = index
+            menu.addItem(cookieItem)
+
+            let workspaceItem = NSMenuItem(
+                title: "设置 \(account.label) Workspace…",
+                action: #selector(setOpenCodeWorkspace(_:)),
+                keyEquivalent: ""
+            )
+            workspaceItem.target = self
+            workspaceItem.representedObject = index
+            menu.addItem(workspaceItem)
+
+            let clearCookieItem = NSMenuItem(
+                title: "清除 \(account.label) Cookie",
+                action: #selector(clearOpenCodeCookie(_:)),
+                keyEquivalent: ""
+            )
+            clearCookieItem.target = self
+            clearCookieItem.representedObject = index
+            menu.addItem(clearCookieItem)
+
+            if index < openCodeGoAccounts.count - 1 {
+                menu.addItem(NSMenuItem.separator())
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -838,17 +1343,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
+    private func makeMenuBarProviderSelector() -> NSMenuItem {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 46))
+        let label = NSTextField(labelWithString: "菜单栏显示")
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.frame = NSRect(x: 12, y: 30, width: 120, height: 14)
+
+        let control = NSSegmentedControl(
+            labels: ["Codex", "OpenCode Go"],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(menuBarProviderChanged(_:))
+        )
+        control.segmentStyle = .rounded
+        control.selectedSegment = selectedMenuBarProvider == .openCodeGo ? 1 : 0
+        control.frame = NSRect(x: 12, y: 8, width: 296, height: 20)
+
+        container.addSubview(label)
+        container.addSubview(control)
+
+        let item = NSMenuItem()
+        item.view = container
+        return item
+    }
+
     private func addDisabledItem(_ title: String, to menu: NSMenu) {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         menu.addItem(item)
     }
-
-    private func formatPercent(_ value: Int?) -> String {
-        guard let value else {
-            return "--%"
-        }
-        return "\(value)%"
-    }
-
 }

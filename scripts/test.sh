@@ -11,8 +11,11 @@ SWIFT_MODULECACHE_PATH="$TMP_DIR/module-cache" \
 swiftc \
     -warnings-as-errors \
     -framework Foundation \
+    -framework Security \
     "$ROOT_DIR/QuotaModel.swift" \
+    "$ROOT_DIR/OpenCodeGoModel.swift" \
     "$ROOT_DIR/Tests/WindowMappingTests.swift" \
+    "$ROOT_DIR/Tests/OpenCodeGoParserTests.swift" \
     -o "$TMP_DIR/WindowMappingTests"
 
 "$TMP_DIR/WindowMappingTests"

@@ -63,6 +63,8 @@ enum WindowMappingTests {
             "2026-07-27 周一 00:00:00"
         )
 
+        OpenCodeGoParserTests.run()
+
         print("Window mapping tests passed")
     }
 
